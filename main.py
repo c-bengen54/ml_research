@@ -23,6 +23,15 @@ run_forecast(
     use_gdp=True
 )
 
+# ── Forecasting — male cancers only ─────────────────────────────────────────
+run_forecast(
+    source="death_by_gender",
+    filters={"sex": "Male"},
+    cancer_types=["Prostate cancer", "Lung cancer", "Colorectal cancer"],
+    periods=20,
+    use_gdp=True
+)
+
 # ── Forecasting — working age adults (20-54) ──────────────────────────────────
 run_forecast(
     source="death_by_age_young",
