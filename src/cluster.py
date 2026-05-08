@@ -2,8 +2,9 @@ from src.preprocess import load_clustering_data, scale_features
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
 import os
@@ -21,9 +22,9 @@ def get_optimal_clusters(X_scaled, k_max=10):
 
     Returns the k with the best silhouette score.
     """
-    inertias     = []
-    silhouettes  = []
-    k_range      = range(2, k_max + 1)
+    inertias    = []
+    silhouettes = []
+    k_range     = list(range(2, k_max + 1))
 
     for k in k_range:
         km     = KMeans(n_clusters=k, random_state=42, n_init=10)
@@ -31,31 +32,61 @@ def get_optimal_clusters(X_scaled, k_max=10):
         inertias.append(km.inertia_)
         silhouettes.append(silhouette_score(X_scaled, labels))
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    # ── Interactive elbow + silhouette chart ─────────────────────
+    fig = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=("Elbow Method — Pick the bend point",
+                        "Silhouette Score — Higher is Better")
+    )
 
-    ax1.plot(k_range, inertias, marker="o")
-    ax1.set_xlabel("Number of Clusters (k)")
-    ax1.set_ylabel("Inertia")
-    ax1.set_title("Elbow Method — Pick the bend point")
+    fig.add_trace(
+        go.Scatter(
+            x=k_range, y=inertias,
+            mode="lines+markers",
+            marker=dict(size=8),
+            line=dict(color="#3b82f6"),
+            name="Inertia",
+            hovertemplate="k=%{x}<br>Inertia=%{y:,.0f}<extra></extra>"
+        ),
+        row=1, col=1
+    )
 
-    ax2.plot(k_range, silhouettes, marker="o", color="green")
-    ax2.set_xlabel("Number of Clusters (k)")
-    ax2.set_ylabel("Silhouette Score")
-    ax2.set_title("Silhouette Score — Higher is Better")
+    fig.add_trace(
+        go.Scatter(
+            x=k_range, y=silhouettes,
+            mode="lines+markers",
+            marker=dict(size=8, color="#22c55e"),
+            line=dict(color="#22c55e"),
+            name="Silhouette",
+            hovertemplate="k=%{x}<br>Score=%{y:.3f}<extra></extra>"
+        ),
+        row=1, col=2
+    )
 
-    plt.tight_layout()
-    plt.savefig("outputs/cluster/elbow_silhouette.png")
-    plt.close()
+    best_k = k_range[int(np.argmax(silhouettes))]
 
-    best_k = list(k_range)[int(np.argmax(silhouettes))]
-    print(f"Elbow + silhouette plot saved → outputs/cluster/elbow_silhouette.png")
+    # Highlight the best k
+    fig.add_vline(x=best_k, line_dash="dash", line_color="red",
+                  annotation_text=f"Best k={best_k}", row=1, col=2)
+
+    fig.update_layout(
+        title="Cluster Evaluation — Elbow & Silhouette",
+        height=450,
+        showlegend=False,
+        template="plotly_white"
+    )
+    fig.update_xaxes(title_text="Number of Clusters (k)")
+    fig.update_yaxes(title_text="Inertia", row=1, col=1)
+    fig.update_yaxes(title_text="Silhouette Score", row=1, col=2)
+
+    fig.write_html("outputs/cluster/elbow_silhouette.html")
+    print(f"Elbow + silhouette chart saved → outputs/cluster/elbow_silhouette.html")
     print(f"Best k by silhouette score: {best_k}")
     return best_k
 
 
 def run_clustering(n_clusters=None):
     # ── 1. Load data ─────────────────────────────────────────────
-    # GDP is now included inside load_clustering_data()
     df = load_clustering_data()
 
     # ── 2. Scale ─────────────────────────────────────────────────
@@ -65,12 +96,9 @@ def run_clustering(n_clusters=None):
     if n_clusters is None:
         n_clusters = get_optimal_clusters(X_scaled)
     else:
-        # Still run the plot even if k is manually set
         get_optimal_clusters(X_scaled)
 
     # ── 4. Train KMeans ──────────────────────────────────────────
-    # n_init=10: runs 10 times with different random seeds,
-    # keeps the best result — reduces chance of poor convergence
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     labels = kmeans.fit_predict(X_scaled)
 
@@ -81,7 +109,6 @@ def run_clustering(n_clusters=None):
     print("  < 0.25 = weak clusters, consider different k")
 
     # ── 5. PCA for visualization ─────────────────────────────────
-    # 3 components — plot 2D but keep a 3rd for extra variance
     pca       = PCA(n_components=3)
     X_reduced = pca.fit_transform(X_scaled)
     print(f"\nPCA variance explained (3 components): "
@@ -103,60 +130,108 @@ def run_clustering(n_clusters=None):
 
 
 def plot_clusters(df):
-    fig, ax = plt.subplots(figsize=(12, 8))
-    colors  = cm.tab10(np.linspace(0, 1, df["cluster"].nunique()))
+    """
+    Interactive 2D PCA scatter plot. Hover to see country name,
+    cluster, and GDP. Click legend to show/hide clusters.
+    """
+    colors = px.colors.qualitative.Set2
+    fig    = go.Figure()
 
-    for cluster_id, color in zip(sorted(df["cluster"].unique()), colors):
-        subset = df[df["cluster"] == cluster_id]
-        ax.scatter(
-            subset["pc1"], subset["pc2"],
-            label=f"Cluster {cluster_id} (n={len(subset)})",
-            color=color, alpha=0.7, s=80
+    for cluster_id in sorted(df["cluster"].unique()):
+        subset = df[df["cluster"] == cluster_id].copy()
+        subset.index.name = "country"
+        subset = subset.reset_index()
+
+        gdp_text = (
+            subset["gdp"].apply(lambda v: f"${v/1e9:.1f}B" if pd.notna(v) else "N/A")
+            if "gdp" in subset.columns else ["N/A"] * len(subset)
         )
-        # Annotate a sample of country names per cluster
-        for _, row in subset.sample(min(3, len(subset)),
-                                    random_state=42).iterrows():
-            ax.annotate(row.name, (row["pc1"], row["pc2"]),
-                        fontsize=7, alpha=0.8)
 
-    ax.set_xlabel("PC1")
-    ax.set_ylabel("PC2")
-    ax.set_title("Country Cancer Profile Clusters")
-    ax.legend()
-    plt.tight_layout()
-    plt.savefig("outputs/cluster/cluster_plot.png")
-    plt.close()
-    print("Cluster plot saved → outputs/cluster/cluster_plot.png")
+        fig.add_trace(go.Scatter(
+            x=subset["pc1"],
+            y=subset["pc2"],
+            mode="markers+text",
+            name=f"Cluster {cluster_id} (n={len(subset)})",
+            marker=dict(
+                size=10,
+                color=colors[cluster_id % len(colors)],
+                opacity=0.8,
+                line=dict(width=1, color="white")
+            ),
+            text=subset["country"],
+            textposition="top center",
+            textfont=dict(size=8),
+            customdata=np.column_stack([
+                subset["country"],
+                gdp_text,
+                [cluster_id] * len(subset)
+            ]),
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "Cluster: %{customdata[2]}<br>"
+                "GDP (PPP): %{customdata[1]}<br>"
+                "PC1: %{x:.2f}<br>"
+                "PC2: %{y:.2f}"
+                "<extra></extra>"
+            )
+        ))
+
+    fig.update_layout(
+        title="Country Cancer Profile Clusters (PCA 2D)",
+        xaxis_title="PC1",
+        yaxis_title="PC2",
+        legend_title="Cluster",
+        template="plotly_white",
+        height=650,
+        hovermode="closest"
+    )
+
+    fig.write_html("outputs/cluster/cluster_plot.html")
+    print("Cluster plot saved → outputs/cluster/cluster_plot.html")
 
 
 def plot_gdp_vs_cluster(df):
     """
-    Boxplot of GDP distribution per cluster.
-    Shows whether clusters separate by economic development.
+    Interactive boxplot of GDP distribution per cluster.
+    Hover to see median, quartiles, and outlier countries.
     """
     if "gdp" not in df.columns:
         print("GDP column not found — skipping GDP boxplot")
         return
 
-    fig, ax      = plt.subplots(figsize=(10, 6))
-    clusters     = sorted(df["cluster"].unique())
-    gdp_by_cluster = [df[df["cluster"] == c]["gdp"].dropna().values
-                      for c in clusters]
+    df_plot = df.reset_index()
+    # The index is named "entity" from load_clustering_data()
+    country_col = "entity" if "entity" in df_plot.columns else df_plot.columns[0]
+    df_plot["cluster_label"] = df_plot["cluster"].apply(lambda c: f"Cluster {c}")
 
-    ax.boxplot(gdp_by_cluster, labels=[f"Cluster {c}" for c in clusters])
-    ax.set_xlabel("Cluster")
-    ax.set_ylabel("GDP PPP (current international $)")
-    ax.set_title("GDP Distribution by Cluster")
-    plt.tight_layout()
-    plt.savefig("outputs/cluster/cluster_gdp_boxplot.png")
-    plt.close()
-    print("GDP boxplot saved → outputs/cluster/cluster_gdp_boxplot.png")
+    fig = px.box(
+        df_plot,
+        x="cluster_label",
+        y="gdp",
+        color="cluster_label",
+        points="all",
+        hover_name=country_col,
+        hover_data={"gdp": ":,.0f", "cluster_label": False},
+        labels={"gdp": "GDP PPP (current international $)",
+                "cluster_label": "Cluster"},
+        title="GDP Distribution by Cluster",
+        template="plotly_white",
+        color_discrete_sequence=px.colors.qualitative.Set2
+    )
+
+    fig.update_layout(
+        height=500,
+        showlegend=False,
+        yaxis_tickformat="$.2s"
+    )
+
+    fig.write_html("outputs/cluster/cluster_gdp_boxplot.html")
+    print("GDP boxplot saved → outputs/cluster/cluster_gdp_boxplot.html")
 
 
 def explain_pca(pca, df):
     """
     Prints which cancer types are the strongest drivers of PC1 and PC2.
-    This tells you what the axes on your cluster plot actually mean.
     """
     feature_cols = [c for c in df.columns
                     if c not in ["cluster", "pc1", "pc2", "pc3"]]
@@ -176,7 +251,6 @@ def explain_pca(pca, df):
 def summarize_clusters(df):
     """
     Prints mean value of every feature per cluster.
-    This is where the real insight is — what makes each cluster distinct.
     """
     feature_cols = [c for c in df.columns
                     if c not in ["cluster", "pc1", "pc2", "pc3"]]
