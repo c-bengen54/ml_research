@@ -52,6 +52,7 @@ scikit-learn
 prophet
 matplotlib
 seaborn
+plotly
 numpy
 ```
 
