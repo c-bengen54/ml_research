@@ -1,11 +1,14 @@
 from src.cluster import run_clustering
 from src.forecast import run_forecast, run_forecast_survival
+from src.regression import run_regression
 
 # ── Clustering ────────────────────────────────────────────────────────────────
 # Pass None to auto-detect best k via silhouette score
 # Or pass a specific number: run_clustering(n_clusters=4)
 df_clustered = run_clustering(n_clusters=2)
 
+# ── Regression — all cancers ────────────────────────────────────────────────────────────────
+regression_model = run_regression(tune=False)
 
 # ── Forecasting — all cancer death rates, all countries ───────────────────────
 run_forecast(

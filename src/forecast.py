@@ -1,7 +1,7 @@
 from src.preprocess import load_forecast_data, load_survival_data, load_gdp_data
 from prophet import Prophet
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import os
 
 os.makedirs("outputs/forecast", exist_ok=True)
@@ -30,18 +30,13 @@ def prepare_series(df, country, cancer_type, value_col="rate"):
     series.columns = ["ds", "y"]
     series["ds"] = pd.to_datetime(series["ds"], format="%Y")
 
-    # Sort and remove any duplicate years
     series = series.sort_values("ds").drop_duplicates("ds")
-
     return series
 
 
 def add_gdp_regressor(series, country, gdp_df):
     """
     Merges GDP into the series as an external regressor for Prophet.
-    Prophet can use additional variables beyond just time — this lets
-    the model learn how GDP changes affect cancer rates.
-
     For future years, the last known GDP value is carried forward.
     """
     country_gdp = gdp_df[gdp_df["entity"] == country][["year", "gdp"]].copy()
@@ -49,10 +44,7 @@ def add_gdp_regressor(series, country, gdp_df):
     country_gdp = country_gdp[["ds", "gdp"]]
 
     series = series.merge(country_gdp, on="ds", how="left")
-
-    # Forward/backward fill gaps so Prophet doesn't get NaN regressors
     series["gdp"] = series["gdp"].ffill().bfill()
-
     return series
 
 
@@ -93,7 +85,6 @@ def run_forecast(source="death_by_type", filters=None,
             if len(series) < 3:
                 continue
 
-            # Add GDP regressor if available for this country
             if use_gdp and gdp_df is not None:
                 series  = add_gdp_regressor(series, country, gdp_df)
                 has_gdp = ("gdp" in series.columns and
@@ -101,10 +92,6 @@ def run_forecast(source="death_by_type", filters=None,
             else:
                 has_gdp = False
 
-            # Build model
-            # yearly_seasonality=False — cancer data is annual,
-            #   there's no within-year seasonality to learn
-            # interval_width=0.95 — 95% confidence interval
             model = Prophet(yearly_seasonality=False, interval_width=0.95)
 
             if has_gdp:
@@ -112,11 +99,9 @@ def run_forecast(source="death_by_type", filters=None,
 
             model.fit(series)
 
-            # Build future dataframe
             future = model.make_future_dataframe(periods=periods, freq="YE")
 
             if has_gdp:
-                # Extend GDP into future using last known value
                 last_gdp = series["gdp"].iloc[-1]
                 future   = future.merge(series[["ds", "gdp"]], on="ds", how="left")
                 future["gdp"] = future["gdp"].fillna(last_gdp)
@@ -140,10 +125,6 @@ def run_forecast(source="death_by_type", filters=None,
 def run_forecast_survival(periods=10, countries=None, cancer_types=None):
     """
     Forecasts 5-year survival rates using the Our World in Data survival file.
-    Separate from run_forecast() because:
-      - different source file format (wide CSV, not GBD)
-      - different value column (survival_rate, not rate)
-      - predictions must be clamped to 0–100%
 
     Cancer types available: Colorectal, Ovarian, Stomach, Lung, Liver, Pancreatic
     Year range: 1995–2014 (limited — forecasts carry more uncertainty)
@@ -191,48 +172,105 @@ def run_forecast_survival(periods=10, countries=None, cancer_types=None):
     return results
 
 
-def plot_forecast(series, forecast, country, cancer_type,
-                  ylabel="Death Rate per 100,000",
-                  subfolder="forecast"):
+def plot_forecast(series, forecast, country, cancer_type, ylabel="Death Rate per 100,000", subfolder="forecast"):
     """
-    Saves a forecast plot showing:
-      - Actual data points (black dots)
+    Saves an interactive Plotly forecast chart as an HTML file showing:
+      - Actual data points (black dots, hoverable)
       - Forecast line (blue)
-      - 95% confidence interval (blue shading)
+      - 95% confidence interval (shaded blue)
       - Vertical line marking where forecast begins
+      - Toggle buttons to show/hide confidence interval
     """
     os.makedirs(f"outputs/{subfolder}", exist_ok=True)
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    last_actual = series["ds"].max()
 
-    # Actual data
-    ax.scatter(series["ds"], series["y"],
-               color="black", label="Actual", zorder=5, s=40)
+    # Split forecast into historical fit and future projection
+    hist_fc  = forecast[forecast["ds"] <= last_actual]
+    future_fc = forecast[forecast["ds"] > last_actual]
 
-    # Forecast line
-    ax.plot(forecast["ds"], forecast["yhat"],
-            color="blue", label="Forecast")
+    fig = go.Figure()
 
-    # Confidence interval
-    ax.fill_between(
-        forecast["ds"],
-        forecast["yhat_lower"],
-        forecast["yhat_upper"],
-        alpha=0.2, color="blue", label="95% Confidence Interval"
+    # ── Confidence interval (future only) ────────────────────────
+    fig.add_trace(go.Scatter(
+        x=pd.concat([future_fc["ds"], future_fc["ds"][::-1]]),
+        y=pd.concat([future_fc["yhat_upper"], future_fc["yhat_lower"][::-1]]),
+        fill="toself",
+        fillcolor="rgba(59,130,246,0.15)",
+        line=dict(color="rgba(255,255,255,0)"),
+        name="95% Confidence Interval",
+        hoverinfo="skip"
+    ))
+
+    # ── Historical confidence interval (lighter) ──────────────────
+    fig.add_trace(go.Scatter(
+        x=pd.concat([hist_fc["ds"], hist_fc["ds"][::-1]]),
+        y=pd.concat([hist_fc["yhat_upper"], hist_fc["yhat_lower"][::-1]]),
+        fill="toself",
+        fillcolor="rgba(59,130,246,0.07)",
+        line=dict(color="rgba(255,255,255,0)"),
+        name="Historical CI",
+        hoverinfo="skip",
+        showlegend=False
+    ))
+
+    # ── Forecast line (full range) ────────────────────────────────
+    fig.add_trace(go.Scatter(
+        x=forecast["ds"],
+        y=forecast["yhat"],
+        mode="lines",
+        line=dict(color="#3b82f6", width=2),
+        name="Forecast",
+        hovertemplate="<b>%{x|%Y}</b><br>Forecast: %{y:.2f}<extra></extra>"
+    ))
+
+    # ── Actual data points ────────────────────────────────────────
+    fig.add_trace(go.Scatter(
+        x=series["ds"],
+        y=series["y"],
+        mode="markers",
+        marker=dict(color="black", size=7, symbol="circle",
+                    line=dict(width=1, color="white")),
+        name="Actual",
+        hovertemplate="<b>%{x|%Y}</b><br>Actual: %{y:.2f}<extra></extra>"
+    ))
+
+    # ── Vertical line at forecast start ──────────────────────────
+    fig.add_vline(
+        x=last_actual.timestamp() * 1000,  # Plotly uses ms for datetime x-axes
+        line_dash="dash",
+        line_color="gray",
+        line_width=1.5,
+        annotation_text="Forecast start",
+        annotation_position="top right",
+        annotation_font_size=11
     )
 
-    # Mark where forecast starts
-    last_actual = series["ds"].max()
-    ax.axvline(last_actual, color="gray", linestyle="--",
-               alpha=0.7, label="Forecast start")
+    fig.update_layout(
+        title=dict(
+            text=f"{cancer_type} — {country}",
+            font=dict(size=16)
+        ),
+        xaxis_title="Year",
+        yaxis_title=ylabel,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1),
+        template="plotly_white",
+        height=500,
+        hovermode="x unified"
+    )
 
-    ax.set_xlabel("Year")
-    ax.set_ylabel(ylabel)
-    ax.set_title(f"{cancer_type} — {country}")
-    ax.legend(fontsize=8)
-    plt.tight_layout()
+    fig.update_xaxes(
+        rangeslider=dict(visible=True),   # scroll to zoom into time range
+        rangeselector=dict(
+            buttons=[
+                dict(count=10, label="10y", step="year", stepmode="backward"),
+                dict(count=20, label="20y", step="year", stepmode="backward"),
+                dict(step="all", label="All")
+            ]
+        )
+    )
 
-    filename = (f"outputs/{subfolder}/{country}_{cancer_type}.png"
-                .replace(" ", "_"))
-    plt.savefig(filename)
-    plt.close()
+    safe_name = f"{country}_{cancer_type}".replace(" ", "_")
+    filepath  = f"outputs/{subfolder}/{safe_name}.html"
+    fig.write_html(filepath)
