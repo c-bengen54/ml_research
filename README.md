@@ -1,6 +1,6 @@
 # Cancer ML — Global Cancer Analysis & Forecasting
 
-A machine learning project that discovers patterns in global cancer data and forecasts future trends using clustering and time series models. Built in Python using scikit-learn and Prophet.
+A machine learning project that discovers patterns in global cancer data, predicts cancer death rates, and forecasts future trends using clustering, regression, and time series models. Built in Python using scikit-learn, XGBoost, and Prophet.
 
 ---
 
@@ -20,7 +20,9 @@ cancer-ml/
 ├── src/
 │   ├── preprocess.py       # Data loading, cleaning, and reshaping
 │   ├── cluster.py          # KMeans clustering + PCA visualization
+│   ├── regression.py       # XGBoost regression model
 │   └── forecast.py         # Prophet time series forecasting
+|
 ├── outputs/
 │   ├── cluster/            # Cluster plots, elbow/silhouette charts
 │   └── forecast/           # Forecast plots per country and cancer type
@@ -50,9 +52,8 @@ pip install -r requirements.txt
 pandas
 scikit-learn
 prophet
-matplotlib
-seaborn
 plotly
+xgboost
 numpy
 ```
 
@@ -78,10 +79,11 @@ python main.py
 
 # Or run individual models from the terminal
 python -c "from src.cluster import run_clustering; run_clustering()"
+python -c "from src.regression import run_regression; run_regression()"
 python -c "from src.forecast import run_forecast; run_forecast()"
 ```
 
-All output plots are saved to the `outputs/` directory. To view them in a Codespace, right-click the image in the file explorer and select **Open Preview**.
+All output plots are saved to the `outputs/` directory as interactive `.html` files. Open them directly in any browser by double-clicking, or in a Codespace via the Simple Browser (`Ctrl+Shift+P` → Simple Browser).
 
 ---
 
@@ -99,8 +101,8 @@ Central data pipeline. All other files import from here. Provides:
 | `load_age_data()` | Combined age group data | Optional use |
 | `load_gdp_data()` | Long format GDP by country/year | Clustering + forecasting |
 | `load_death_vs_gdp()` | Death rates merged with GDP | Analysis |
-| `load_tobacco_data()` | Tobacco-attributed death % | Analysis |
-| `load_disease_burden()` | DALY rates by cancer type | Analysis |
+| `load_tobacco_data()` | Tobacco-attributed death % | `regression.py` |
+| `load_disease_burden()` | DALY rates by cancer type | `regression.py` |
 | `scale_features(X)` | Scaled numpy array + fitted scaler | `cluster.py` |
 
 ### `cluster.py` — Pattern Discovery
@@ -112,12 +114,12 @@ Uses **KMeans clustering** to group countries by their cancer burden profiles. C
 3. Find optimal number of clusters using elbow method + silhouette scoring
 4. Fit KMeans and assign cluster labels
 5. Compress to 2D with PCA for visualization
-6. Save cluster plot, GDP boxplot, and cluster summary
+6. Save interactive cluster plot, GDP boxplot, and cluster summary
 
 **Outputs:**
-- `outputs/cluster/elbow_silhouette.png` — helps pick the right number of clusters
-- `outputs/cluster/cluster_plot.png` — 2D scatter of country clusters
-- `outputs/cluster/cluster_gdp_boxplot.png` — GDP distribution per cluster
+- `outputs/cluster/elbow_silhouette.html` — interactive elbow and silhouette chart
+- `outputs/cluster/cluster_plot.html` — interactive 2D scatter of country clusters
+- `outputs/cluster/cluster_gdp_boxplot.html` — interactive GDP distribution per cluster
 - Console: cluster summary table, PCA component drivers
 
 **Usage:**
@@ -131,6 +133,43 @@ df_clustered = run_clustering()
 df_clustered = run_clustering(n_clusters=4)
 ```
 
+### `regression.py` — Death Rate Prediction
+Uses **XGBoost regression** to predict cancer death rates from GDP, tobacco attribution, disease burden, and cancer type. Achieves a test R² of 0.991 on the full dataset.
+
+**Pipeline:**
+1. Load and merge GBD death rates, GDP, tobacco attribution, and DALY burden data
+2. Engineer features — mean country cancer rate and GDP rank per year
+3. Encode cancer type as a numeric category
+4. Split 80/20 into train and test sets
+5. Optionally run GridSearchCV to find optimal hyperparameters
+6. Evaluate train and test performance and print feature importance
+
+**Feature importance (tuned model):**
+
+| Feature | Importance |
+|---|---|
+| `cancer_type` | 0.713 |
+| `mean_country_rate` | 0.169 |
+| `gdp` | 0.066 |
+| `gdp_rank` | 0.053 |
+| `year` | 0.000 |
+
+**Best parameters found:** `n_estimators=200`, `max_depth=8`, `learning_rate=0.1`, `subsample=0.8`
+
+**Usage:**
+```python
+from src.regression import run_regression
+
+# Train on all cancer types with pre-tuned parameters (fast)
+run_regression(tune=False)
+
+# Train on all cancer types and re-run grid search (slow, ~5 min)
+run_regression(tune=True)
+
+# Train on a single cancer type
+run_regression(cancer_type="Lung cancer", tune=False)
+```
+
 ### `forecast.py` — Trend Forecasting
 Uses **Facebook Prophet** to forecast cancer death rates and survival rates up to 10 years ahead. Optionally uses GDP as an external regressor to improve accuracy.
 
@@ -140,13 +179,15 @@ Uses **Facebook Prophet** to forecast cancer death rates and survival rates up t
 3. Format for Prophet (`ds` and `y` columns)
 4. Optionally attach GDP as a regressor
 5. Fit Prophet model and generate forecast
-6. Save plot with actual data, forecast line, and 95% confidence interval
+6. Save interactive plot with actual data, forecast line, and 95% confidence interval
 
 **Two forecast modes:**
 
 `run_forecast()` — forecasts cancer **death rates** using GBD data. Supports filtering by sex or age group.
 
 `run_forecast_survival()` — forecasts 5-year **survival rates** using ICBP data. Predictions are clamped to 0–100%.
+
+**Outputs:** Interactive `.html` files per country/cancer combination with a range slider and 10y/20y/All time range buttons.
 
 **Usage:**
 ```python
@@ -234,6 +275,8 @@ run_forecast_survival(periods=10)
 - GDP regressor uses last known value for future years — does not account for economic shocks or growth
 - KMeans assumes spherical clusters — countries with unusual cancer profiles may not cluster well
 - Small countries with sparse data are dropped during preprocessing (below 70% column coverage threshold)
+- Regression model encodes cancer type as an arbitrary integer — meaningful only within the model, not across comparisons
+- Regression feature importance shows `year` contributes nothing — death rates are stable enough year-over-year that the model gains no signal from it
 
 ---
 
