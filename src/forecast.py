@@ -172,9 +172,7 @@ def run_forecast_survival(periods=10, countries=None, cancer_types=None):
     return results
 
 
-def plot_forecast(series, forecast, country, cancer_type,
-                  ylabel="Death Rate per 100,000",
-                  subfolder="forecast"):
+def plot_forecast(series, forecast, country, cancer_type, ylabel="Death Rate per 100,000", subfolder="forecast"):
     """
     Saves an interactive Plotly forecast chart as an HTML file showing:
       - Actual data points (black dots, hoverable)
