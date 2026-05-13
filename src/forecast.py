@@ -81,7 +81,6 @@ def run_forecast(source="death_by_type", filters=None,
         for country in df["entity"].unique():
 
             series = prepare_series(df, country, cancer, value_col="rate")
-
             if len(series) < 3:
                 continue
 

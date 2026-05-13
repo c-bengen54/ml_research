@@ -5,11 +5,23 @@ from src.regression import run_regression
 # ── Clustering ────────────────────────────────────────────────────────────────
 # Pass None to auto-detect best k via silhouette score
 # Or pass a specific number: run_clustering(n_clusters=4)
-df_clustered = run_clustering(n_clusters=2)
+#run_clustering(n_clusters=2)
+
+# ── Regression ────────────────────────────────────────────────────────────────
+#Pass tune=False to skip model tuning to use premade parameters
+#Or don't pass tune to have the model's parameters be tuned
+#You can also pass a specific cancer type to hone into a specific feature of the data
 
 # ── Regression — all cancers ────────────────────────────────────────────────────────────────
-regression_model = run_regression(tune=False)
+run_regression(tune=False)
 
+# ── Regression — Stomach cancer ────────────────────────────────────────────────────────────────
+run_regression(cancer_type="Stomach cancer")
+
+# ── Regression — Ovarian cancer ────────────────────────────────────────────────────────────────
+run_regression(cancer_type="Ovarian cancer")
+
+"""
 # ── Forecasting — all cancer death rates, all countries ───────────────────────
 run_forecast(
     source="death_by_type",
@@ -54,3 +66,4 @@ run_forecast(
 # ── Forecasting — survival rates ──────────────────────────────────────────────
 # Available cancer types: Colorectal, Ovarian, Stomach, Lung, Liver, Pancreatic
 run_forecast_survival(periods=20)
+"""

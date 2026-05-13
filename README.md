@@ -25,8 +25,9 @@ cancer-ml/
 |
 ├── outputs/
 │   ├── cluster/            # Cluster plots, elbow/silhouette charts
-│   └── forecast/           # Forecast plots per country and cancer type
-│       └── survival/       # Survival rate forecast plots
+│   ├── forecast/           # Forecast plots per country and cancer type
+│   │   └── survival/       # Survival rate forecast plots
+│   └── regression/         # Regression variance and decision tree plots
 ├── main.py                 # Entry point — runs all models
 └── requirements.txt
 ```
@@ -154,7 +155,7 @@ Uses **XGBoost regression** to predict cancer death rates from GDP, tobacco attr
 | `gdp_rank` | 0.053 |
 | `year` | 0.000 |
 
-**Best parameters found:** `n_estimators=200`, `max_depth=8`, `learning_rate=0.1`, `subsample=0.8`
+**Best parameters found for standard call with tuning:** `n_estimators=200`, `max_depth=8`, `learning_rate=0.1`, `subsample=0.8`
 
 **Usage:**
 ```python
@@ -166,7 +167,7 @@ run_regression(tune=False)
 # Train on all cancer types and re-run grid search (slow, ~5 min)
 run_regression(tune=True)
 
-# Train on a single cancer type
+# Train on a single cancer type, uses pre-tuned parameters
 run_regression(cancer_type="Lung cancer", tune=False)
 ```
 

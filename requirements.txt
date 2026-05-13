@@ -4,3 +4,5 @@ prophet
 matplotlib
 seaborn
 numpy
+plotly
+xgboost
