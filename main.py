@@ -5,12 +5,12 @@ from src.regression import run_regression
 # ── Clustering ────────────────────────────────────────────────────────────────
 # Pass None to auto-detect best k via silhouette score
 # Or pass a specific number: run_clustering(n_clusters=4)
-#run_clustering(n_clusters=2)
+run_clustering(n_clusters=2)
 
 # ── Regression ────────────────────────────────────────────────────────────────
-#Pass tune=False to skip model tuning to use premade parameters
-#Or don't pass tune to have the model's parameters be tuned
-#You can also pass a specific cancer type to hone into a specific feature of the data
+# Pass tune=False to skip model tuning to use premade parameters
+# Or don't pass tune to have the model's parameters be tuned
+# Or pass a specific cancer type to hone into a specific feature of the data
 
 # ── Regression — all cancers ────────────────────────────────────────────────────────────────
 run_regression(tune=False)
